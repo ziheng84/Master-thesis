@@ -1,0 +1,2 @@
+filename,cell_number,center_of_mass_x,center_of_mass_y,mass,perimeter,spheroid_width,spheroid_height,spheroid_volume,spheroid_surface_area,mass,perimeter,mass/cell_mass,mass/perimeter,expectation_x,expectation_y,covariance_1,covariance_2,scatter_ratio
+sample01-tr.png,394,271.929826,264.734447,558.796954,78.413706,28.943408,23.952772,9970.403340,2156.815940,103893.062295,78.413706,185.645881,1267.606411,271.989831,264.522482,7.094836,5.829499,0.059555

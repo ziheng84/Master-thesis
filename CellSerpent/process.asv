@@ -1,0 +1,1798 @@
+function param = process(param)
+    % process.m - cell segmentation module
+    % ------------------------------------
+    %
+    % - cell segmentation configuration dialog
+    % - batch processing
+    % 
+    % param: parameter structure - fields:  
+    % 
+    % action - 'default' returns a default configuration
+    %          'configure' invokes configuration dialog
+    %          'do' performs cell segmentation
+    %
+    % files - list of images to process
+    %
+    % seg - segmentation parameter structure
+    %
+    % debug - if set, debug output will be produced
+    %
+    %
+    %
+    % Copyright (C) 2008-2011 Kristian Bredies (kristian.bredies@uni-graz.at),
+    %               2010-2011 Florian Leitner (florian.leitner@student.tugraz.at)
+    %
+    %   This program is free software; you can redistribute it and/or modify
+    %   it under the terms of the GNU General Public License as published by
+    %   the Free Software Foundation; either version 2, or (at your option)
+    %   any later version.
+    %
+    %   This program is distributed in the hope that it will be useful,
+    %   but WITHOUT ANY WARRANTY; without even the implied warranty of
+    %   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    %   GNU General Public License for more details.
+    %
+    %   You should have received a copy of the GNU General Public License
+    %   along with this program; if not, write to the Free Software
+    %   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston, MA
+    %   02110-1301, USA.
+    
+    
+    % check for action
+    if (~isfield(param,'action'))
+        mesg(1, 'Could not determine what to do.');
+        return;
+    end
+    
+    isdebug = isfield(param,'debug');
+    
+    action = 0;
+    
+    if (strcmp(param.action, 'default'))
+        % create default configuration
+        action = 1;
+        
+        mesg(isdebug, 'Creating default configuration.');
+        
+        param = configure_default(param);
+    end
+    
+    
+    if (strcmp(param.action,'configure'))
+        % configuration
+        action = 1;
+        
+        mesg(isdebug, 'Invoking configuration dialog.');
+        
+        param = configure_segmentation(param);
+    end
+    
+    if (strcmp(param.action,'do'))
+        % batch processing
+        action = 1;
+        
+        % check for file list
+        if (~isfield(param,'files'))
+            mesg(1, 'No files to process specified.');
+            return;
+        end
+        
+        start_file = 1;
+        numfiles = length(param.files);
+        if (numfiles == 0)
+            mesg(1, 'No files to process specified.');
+            return;
+        end
+        
+        % check if only the selected file should be processed
+        if(param.seg.only_selected_file)
+            start_file = param.selectedFile;
+            numfiles = param.selectedFile;
+        end
+        % process in a for loop
+        for fnum = start_file:numfiles
+            curfile = param.files{fnum};
+            [pathstr, name, ext] = fileparts(curfile);
+            prefile = fullfile(pathstr, [name '_pre.mat']);
+            segfile = fullfile(pathstr, [name '_seg.mat']);          
+            pngfile = fullfile(pathstr, [name '_seg.png']);
+            resfile = fullfile(pathstr, [name '_res.mat']);
+            % get fluorescence data file name if possible
+            if (isfield(param, 'seg'))
+                if (isfield(param.seg,'post_fluor_pat') && ...
+                        (isfield(param.seg,'post_fluor_rep')))
+                    if (strfind(param.seg.post_fluor_pat,'.'))
+                        % replace name and extension
+                        fluorfile = fullfile(pathstr, [strrep([name ext], ...
+                            param.seg.post_fluor_pat, param.seg.post_fluor_rep)]);
+                    else
+                        % replace name only
+                        fluorfile = fullfile(pathstr, [strrep(name, param.seg.post_fluor_pat, ...
+                            param.seg.post_fluor_rep) ext]);
+                    end
+                else
+                    fluorfile = '';
+                end
+            end
+            
+            mesg(1, sprintf('[%d/%d] Processing %s...', fnum, numfiles, curfile));
+            
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            % clear axes, do gc and display jvm free memory
+            
+            cla reset;
+            %java.lang.Runtime.getRuntime.gc();
+            mesg(1, sprintf('Java free memory %d...', java.lang.Runtime.getRuntime.freeMemory));
+                        
+            %%%%%%%%%%%%%%%
+            % preprocessing
+            if (param.seg.preprocess)
+                % do preprocessing
+                mesg(isdebug, 'Starting preprocessing.');
+           
+                % load image and convert
+                if (exist(curfile,'file'))
+                    image = loadimage(param,curfile);
+                    mesg(isdebug, sprintf('Image file ''%s'' loaded and converted.', curfile));
+                   
+                    param = preprocess_image(param, image, prefile);
+                else
+                    mesg(1, sprintf('Image file ''%s'' does not exist. Skipped preprocessing.', ...
+                        curfile));
+                end
+            end
+            
+            %%%%%%%%%%%%%%
+            % segmentation
+            if (param.seg.process)
+                % do segmentation
+                mesg(isdebug, 'Starting segmentation.');
+                
+                if (exist(prefile,'file'))
+                    % load file
+                    load(prefile,'im','im2','bg','imsize_orig');
+                    mesg(isdebug, sprintf('Data file ''%s'' loaded.', prefile));
+                    
+                    param = segment_cells(param, im, im2, bg, imsize_orig, segfile);
+                    
+                else
+                    mesg(1, sprintf('Data file ''%s'' does not exist. Skipped segmentation.', ...
+                        prefile));                    
+                end
+            end
+            
+            %%%%%%%%%%%%%%%%
+            % postprocessing
+            if (param.seg.postprocess)
+                % do postprocessing
+                mesg(isdebug, 'Starting postprocessing.');
+                
+                if (exist(segfile,'file'))
+                    % load file
+                    load(segfile, 'im', 'segments');
+                    mesg(isdebug, sprintf('Data file %s loaded.', segfile));
+                    
+                    % load fluorescence data if possible
+                    if (exist(fluorfile,'file'))
+                        fluor = loadimage(param, fluorfile);
+                        mesg(isdebug, sprintf('Fluorescence data ''%s'' loaded and converted.', ...
+                            fluorfile));
+                    else
+                        fluor = [];
+                        mesg(isdebug, ...
+                             sprintf('Fluorescence data file ''%s'' not found or not specified.', ...
+                               fluorfile));
+                    end
+                    
+                    % do postprocessing
+                    param = postprocess_cells(param, im, segments, fluor, pngfile, resfile);
+                else
+                    mesg(1, sprintf('Data file ''%s'' does not exist. Skipped postprocessing.', ...
+                        segfile));                    
+                end
+            end
+            mesg(1, sprintf('[%d/%d] Processing of ''%s'' complete.', fnum, numfiles, curfile));
+        end
+    end
+    
+    if (action == 0)
+        mesg(1, sprintf('Action ''%s'' not implemented.', param.action));
+    end 
+end
+
+% create default configuration
+function param = configure_default(param)
+    % general parameters
+    seg.crop_left = 0;
+    seg.crop_right = 0;
+    seg.crop_top = 0;
+    seg.crop_bottom = 0;
+    seg.only_selected_file = false;
+
+    % preprocess parameters
+    seg.preprocess = 1;
+    seg.pre_scaleimage = 1;
+    seg.pre_scaleimage_width = 512;
+    seg.pre_scaleimage_height = 512;
+    seg.pre_medfiltlen = 30;
+    seg.pre_tv_lambda = 2;
+    seg.pre_tv_iter = 250;
+    seg.pre_ellipt_reg = 0.001;
+    seg.pre_ellipt_edge_weight = 0.1;
+    seg.pre_background_thres = 3;
+    seg.pre_background_feat_size = 5;
+    
+    % segmentation parameters
+    seg.process = 1;
+    seg.seg_seed_edge_weight = 20;
+    seg.seg_seed_smoothing_iter = 30;
+    seg.seg_seed_min_dist = 5;
+    seg.seg_edge_weight = 17.5;
+    seg.seg_alpha = 0.1;
+    seg.seg_beta = 2;
+    seg.seg_initial_radius = 2;
+    seg.seg_snake_points = 24;
+    seg.seg_tolerance = 5e-5;
+    
+    % postprocess parameters
+    seg.postprocess = 1;
+    seg.post_make_image = 1;
+    seg.post_fluor_thres = 0;
+    % file name replace defaults
+    seg.post_fluor_pat = 'level1';
+    seg.post_fluor_rep = 'level2';
+    
+    
+    param.seg = seg;
+end
+
+function image = loadimage(param, fname)
+    % loads an image, crops and converts it 
+
+    [pathstr, name, ext] = fileparts(fname);
+    
+    % treat AMIRA Matlab files differently
+    if (strcmp(ext, '.mat'))
+        vars = load(fname);
+        fieldn = fieldnames(vars);
+        if (length(fieldn) >= 1)
+            image = vars.(fieldn{1});
+            % transpose since AMIRA swaps dim 1 and 2
+            image = permute(image, [2 1 3]);
+        else
+            % check for pathological case
+            mesg(1, sprintf('File ''%s'' does not contain any data.', ...
+                fname));
+            image = [0];
+        end
+    else
+        image = imread(fname);
+    end
+    
+    % get cropping parameters
+    if (isfield(param.seg,'crop_left')) 
+        cl = param.seg.crop_left;
+    else
+        cl = 0;
+    end
+    if (isfield(param.seg,'crop_right')) 
+        cr = param.seg.crop_right;
+    else
+        cr = 0;
+    end
+    if (isfield(param.seg,'crop_top')) 
+        ct = param.seg.crop_top;
+    else
+        ct = 0;
+    end
+    if (isfield(param.seg,'crop_bottom')) 
+        cb = param.seg.crop_bottom;
+    else
+        cb = 0;
+    end
+    
+    % crop image
+    left = cl + 1;
+    right = size(image,2) - cr;
+    if (right < 1)
+        right = 1;
+    end
+    if (left > right)
+        left = right;
+    end
+    top = ct + 1;
+    bottom = size(image,1) - cb;
+    if (bottom < 1)
+        bottom = 1;
+    end
+    if (top > bottom)
+        top = bottom;
+    end
+    image = image(top:bottom,left:right,:);
+    
+    image = double(image);
+    
+    % convert to graylevel in case of 2d images
+    if (~strcmp(ext,'.mat'))
+        % to black and white
+        if (size(image,3) == 3)
+            image = 0.3*image(:,:,1) + 0.59*image(:,:,2) ...
+                    + 0.11*image(:,:,3);
+        end
+        % take first channel if not RGB
+        if (size(image, 3) > 1)
+            image = image(:,:,1);
+        end
+    end
+    
+     % scale image if necessary
+    if (param.seg.pre_scaleimage)
+        im_old = image;
+        image = zeros([param.seg.pre_scaleimage_height param.seg.pre_scaleimage_width ...
+            size(im_old,3)]);
+        for i=1:size(im_old,3)
+            image(:,:,i) = imresize(im_old(:,:,i), [param.seg.pre_scaleimage_height ...
+                param.seg.pre_scaleimage_width]);
+        end
+    end
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% configuration dialog
+
+function param = configure_segmentation(param)
+    param_old = param;
+
+    hdlg = openfig('seg_conf_ui.fig');
+    
+    gui = get_gui_handles();
+    initialize_bounds();
+    initialize_values();
+    initialize_callbacks();
+    
+    save_settings = 0;
+    waitfor(hdlg);
+    if (~save_settings)
+        param = param_old;
+    end
+    
+    
+    %%%%%%%%%%%%%%%%%%%%%%%
+    % callbacks
+    function okay_button(obj, event)
+        save_values();
+        save_settings = 1;
+        close(gcbf);
+    end
+
+    function cancel_button(obj, event)
+        close(gcbf);
+    end
+
+    function reset_button(obj, event)
+        param_new = configure_default(param);
+        
+        % hack for main gui parameters
+        param_new.seg.post_fluor_pat = param.seg.post_fluor_pat;
+        param_new.seg.post_fluor_rep = param.seg.post_fluor_rep;
+        
+        param = param_new;
+        initialize_values();
+    end
+    
+    function check_bounds(obj, event)
+        % checks bound for numeric values
+        bounds = get(gcbo, 'UserData');
+        
+        num = str2double(get(gcbo,'String'));
+        num = min(bounds(2),max(bounds(1),num));
+        set(gcbo, 'String', num2str(num));
+    end
+    
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    % initalization and save routines
+    function initialize_callbacks()
+        % pushbutton callbacks
+        set(gui.okay, 'Callback', @okay_button);
+        set(gui.reset, 'Callback', @reset_button);
+        set(gui.cancel, 'Callback', @cancel_button);
+        
+        % bounds check for all numeric values        
+        set(gui.crop_left, 'Callback', @check_bounds);
+        set(gui.crop_right, 'Callback', @check_bounds);
+        set(gui.crop_top, 'Callback', @check_bounds);
+        set(gui.crop_bottom, 'Callback', @check_bounds);
+
+        set(gui.pre_scaleimage_width, 'Callback', @check_bounds);
+        set(gui.pre_scaleimage_height, 'Callback', @check_bounds);
+        set(gui.pre_medfiltlen, 'Callback', @check_bounds);
+        set(gui.pre_tv_lambda, 'Callback', @check_bounds);
+        set(gui.pre_tv_iter, 'Callback', @check_bounds);
+        set(gui.pre_ellipt_reg, 'Callback', @check_bounds);
+        set(gui.pre_ellipt_edge_weight, 'Callback', @check_bounds);
+        set(gui.pre_background_thres, 'Callback', @check_bounds);
+        set(gui.pre_background_feat_size, 'Callback', @check_bounds);
+        
+        set(gui.seg_seed_edge_weight, 'Callback', @check_bounds);
+        set(gui.seg_seed_smoothing_iter, 'Callback', @check_bounds);
+        set(gui.seg_seed_min_dist, 'Callback', @check_bounds);
+        set(gui.seg_edge_weight, 'Callback', @check_bounds);
+        set(gui.seg_alpha, 'Callback', @check_bounds);
+        set(gui.seg_beta, 'Callback', @check_bounds);
+        set(gui.seg_initial_radius, 'Callback', @check_bounds);
+        set(gui.seg_snake_points, 'Callback', @check_bounds);
+        set(gui.seg_tolerance, 'Callback', @check_bounds);
+    
+        set(gui.post_fluor_thres, 'Callback', @check_bounds);
+    end
+    
+    function initialize_values()
+        set(gui.crop_left,'String',num2str(param.seg.crop_left));
+        set(gui.crop_right,'String',num2str(param.seg.crop_right));
+        set(gui.crop_top,'String',num2str(param.seg.crop_top));
+        set(gui.crop_bottom,'String',num2str(param.seg.crop_bottom));
+        
+        set(gui.preprocess,'Value',param.seg.preprocess);
+        set(gui.pre_scaleimage,'Value',param.seg.pre_scaleimage);
+        set(gui.pre_scaleimage_width,'String',num2str(param.seg.pre_scaleimage_width));
+        set(gui.pre_scaleimage_height,'String',num2str(param.seg.pre_scaleimage_height));
+        set(gui.pre_medfiltlen,'String',num2str(param.seg.pre_medfiltlen));
+        set(gui.pre_tv_lambda,'String',num2str(param.seg.pre_tv_lambda));
+        set(gui.pre_tv_iter,'String',num2str(param.seg.pre_tv_iter));
+        set(gui.pre_ellipt_reg,'String',num2str(param.seg.pre_ellipt_reg));        
+        set(gui.pre_ellipt_edge_weight,'String', ...
+            num2str(param.seg.pre_ellipt_edge_weight));
+        set(gui.pre_background_thres,'String', ...
+            num2str(param.seg.pre_background_thres));
+        set(gui.pre_background_feat_size,'String', ...
+            num2str(param.seg.pre_background_feat_size));
+        
+        set(gui.process,'Value',param.seg.process);
+        set(gui.seg_seed_edge_weight, 'String', ...
+            num2str(param.seg.seg_seed_edge_weight));
+        set(gui.seg_seed_smoothing_iter, 'String', ...
+            num2str(param.seg.seg_seed_smoothing_iter));
+        set(gui.seg_seed_min_dist, 'String', num2str(param.seg.seg_seed_min_dist));
+        set(gui.seg_edge_weight, 'String', num2str(param.seg.seg_edge_weight));
+        set(gui.seg_alpha, 'String', num2str(param.seg.seg_alpha));
+        set(gui.seg_beta, 'String', num2str(param.seg.seg_beta));
+        set(gui.seg_initial_radius, 'String', num2str(param.seg.seg_initial_radius));
+        set(gui.seg_snake_points, 'String', num2str(param.seg.seg_snake_points));
+        set(gui.seg_tolerance, 'String', num2str(param.seg.seg_tolerance));
+        
+        set(gui.postprocess,'Value',param.seg.postprocess);
+        set(gui.post_make_image,'Value',param.seg.post_make_image);
+        set(gui.post_fluor_thres, 'String', num2str(param.seg.post_fluor_thres));
+    end
+
+    function save_values()
+        param.seg.crop_left = str2double(get(gui.crop_left,'String'));
+        param.seg.crop_right = str2double(get(gui.crop_right,'String'));
+        param.seg.crop_top = str2double(get(gui.crop_top,'String'));
+        param.seg.crop_bottom = str2double(get(gui.crop_bottom,'String'));
+        
+        param.seg.preprocess = get(gui.preprocess,'Value');
+        param.seg.pre_scaleimage = get(gui.pre_scaleimage,'Value');
+        param.seg.pre_scaleimage_width = str2double(get(gui.pre_scaleimage_width,'String'));
+        param.seg.pre_scaleimage_height = str2double(get(gui.pre_scaleimage_height,'String'));
+        param.seg.pre_medfiltlen = str2double(get(gui.pre_medfiltlen,'String'));
+        param.seg.pre_tv_lambda = str2double(get(gui.pre_tv_lambda,'String'));
+        param.seg.pre_tv_iter = str2double(get(gui.pre_tv_iter,'String'));
+        param.seg.pre_ellipt_reg = str2double(get(gui.pre_ellipt_reg,'String'));        
+        param.seg.pre_ellipt_edge_weight = str2double(get(...
+            gui.pre_ellipt_edge_weight,'String'));
+        param.seg.pre_background_thres = str2double(get(...
+            gui.pre_background_thres,'String'));
+        param.seg.pre_background_feat_size = str2double(get(...
+            gui.pre_background_feat_size,'String'));
+        
+        param.seg.process = get(gui.process,'Value');
+        param.seg.seg_seed_edge_weight = str2double(get(...
+            gui.seg_seed_edge_weight, 'String'));
+        param.seg.seg_seed_smoothing_iter = str2double(get(...
+            gui.seg_seed_smoothing_iter, 'String'));
+        param.seg.seg_seed_min_dist = str2double(get(...
+            gui.seg_seed_min_dist, 'String'));
+        param.seg.seg_edge_weight = str2double(get(...
+            gui.seg_edge_weight, 'String'));
+        param.seg.seg_alpha = str2double(get(gui.seg_alpha, 'String'));
+        param.seg.seg_beta = str2double(get(gui.seg_beta, 'String'));
+        param.seg.seg_initial_radius = str2double(get(...
+            gui.seg_initial_radius, 'String'));
+        param.seg.seg_snake_points = str2double(get(...
+            gui.seg_snake_points, 'String'));
+        param.seg.seg_tolerance = str2double(get(...
+            gui.seg_tolerance, 'String'));
+        
+        param.seg.postprocess = get(gui.postprocess,'Value');
+        param.seg.post_make_image = get(gui.post_make_image,'Value');
+        param.seg.post_fluor_thres = str2double(get(...
+            gui.post_fluor_thres, 'String'));
+    end
+    
+    function initialize_bounds()
+        set_bounds(gui.crop_left, 0, 10000);
+        set_bounds(gui.crop_right, 0, 10000);
+        set_bounds(gui.crop_top, 0, 10000);
+        set_bounds(gui.crop_bottom, 0, 10000);
+        
+        set_bounds(gui.pre_scaleimage_width, 16, 2048);
+        set_bounds(gui.pre_scaleimage_height, 16, 2048);
+        set_bounds(gui.pre_medfiltlen, 0, 10000);
+        set_bounds(gui.pre_tv_lambda, 0, 1000);
+        set_bounds(gui.pre_tv_iter, 0, 1000000);
+        set_bounds(gui.pre_ellipt_reg, 0, 100);
+        set_bounds(gui.pre_ellipt_edge_weight, 0, 1000);
+        set_bounds(gui.pre_background_thres, 0, 100);
+        set_bounds(gui.pre_background_feat_size, 0, 10000);
+        
+        set_bounds(gui.seg_seed_edge_weight, 0, 1000);
+        set_bounds(gui.seg_seed_smoothing_iter, 0, 1000000);
+        set_bounds(gui.seg_seed_min_dist, 0, 10000);
+        set_bounds(gui.seg_edge_weight, 0, 1000);
+        set_bounds(gui.seg_alpha, 0, 1000000);
+        set_bounds(gui.seg_beta, 0, 1000000);
+        set_bounds(gui.seg_initial_radius, 0, 10000);
+        set_bounds(gui.seg_snake_points, 0, 1000);
+        set_bounds(gui.seg_tolerance, 0, 1);
+    
+        set_bounds(gui.post_fluor_thres, 0, 255);
+    end
+
+    function set_bounds(handle,low,high)
+        bounds = [low high];
+        set(handle, 'UserData', bounds);
+    end
+    
+    function gui = get_gui_handles()        
+        gui.okay = findobj(hdlg,'Tag','okay');
+        gui.reset = findobj(hdlg,'Tag','reset');
+        gui.cancel = findobj(hdlg,'Tag','cancel');
+        
+        gui.crop_left = findobj(hdlg,'Tag','crop_left');
+        gui.crop_right = findobj(hdlg,'Tag','crop_right');
+        gui.crop_top = findobj(hdlg,'Tag','crop_top');
+        gui.crop_bottom = findobj(hdlg,'Tag','crop_bottom');
+        
+        gui.preprocess = findobj(hdlg,'Tag','preprocess');
+        gui.pre_scaleimage = findobj(hdlg,'Tag','pre_scaleimage');
+        gui.pre_scaleimage_width = findobj(hdlg,'Tag','pre_scaleimage_width');
+        gui.pre_scaleimage_height = findobj(hdlg,'Tag','pre_scaleimage_height');
+        gui.pre_medfiltlen = findobj(hdlg,'Tag','pre_medfiltlen');
+        gui.pre_tv_lambda = findobj(hdlg,'Tag','pre_tv_lambda');
+        gui.pre_tv_iter = findobj(hdlg,'Tag','pre_tv_iter');
+        gui.pre_ellipt_reg = findobj(hdlg,'Tag','pre_ellipt_reg');
+        gui.pre_ellipt_edge_weight = findobj(hdlg,'Tag','pre_ellipt_edge_weight');
+        gui.pre_background_thres = findobj(hdlg,'Tag','pre_background_thres');
+        gui.pre_background_feat_size = findobj(hdlg,'Tag','pre_background_feat_size');
+        
+        gui.process = findobj(hdlg,'Tag','process');
+        gui.seg_seed_edge_weight = findobj(hdlg,'Tag','seg_seed_edge_weight');
+        gui.seg_seed_smoothing_iter = findobj(hdlg,'Tag','seg_seed_smoothing_iter');
+        gui.seg_seed_min_dist = findobj(hdlg,'Tag','seg_seed_min_dist');
+        gui.seg_edge_weight = findobj(hdlg,'Tag','seg_edge_weight');
+        gui.seg_alpha = findobj(hdlg,'Tag','seg_alpha');
+        gui.seg_beta = findobj(hdlg,'Tag','seg_beta');
+        gui.seg_initial_radius = findobj(hdlg,'Tag','seg_initial_radius');
+        gui.seg_snake_points = findobj(hdlg,'Tag','seg_snake_points');
+        gui.seg_tolerance = findobj(hdlg,'Tag','seg_tolerance');
+    
+        gui.postprocess = findobj(hdlg,'Tag','postprocess');
+        gui.post_make_image = findobj(hdlg,'Tag','post_make_image');
+        gui.post_fluor_thres = findobj(hdlg,'Tag','post_fluor_thres');
+    end
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% preprocessing part
+
+
+function param = preprocess_image(param, image, prefile)
+    % preprocessing pipeline for an image
+
+    isdebug = isfield(param,'debug');
+    im = image;
+    imsize_orig = size(im);
+    
+    % normalize image
+    im0 = min(im(:)); im1 = max(im(:));
+    im = (im - im0)/(im1 - im0)*255;
+    
+    mesg(isdebug, 'Performing median filtering....');
+    % substract median filtered image
+    medfiltlen = param.seg.pre_medfiltlen;
+    im = padarray(im, [1 1]*medfiltlen, 'symmetric');
+    im2 = medfilt2(im, [1 1]*medfiltlen);
+    im = im - im2;
+    im = im((medfiltlen+1):end-medfiltlen,(medfiltlen+1):end-medfiltlen);
+    
+    % normalize again
+    m1 = min(im(:)); m2 = max(im(:));
+    im = (im - m1)/(m2 - m1)*255;
+    
+    % do smoothing steps
+    mesg(isdebug, 'Performing elliptic nonlinear smoothing...');
+    im2 = solve_nonlin_ellipt(im/255, param.seg.pre_ellipt_reg, ...
+        param.seg.pre_ellipt_edge_weight)*255;
+    %mesg(isdebug, 'Performing total variation regularization...');
+    %im4 = tv_regularization(im, param.seg.pre_tv_lambda, ...
+    %    param.seg.pre_tv_iter);
+    
+    % background detection
+    mesg(isdebug, 'Detecting background...');
+    bg = getbackground(im,param.seg.pre_background_thres, ...
+        param.seg.pre_background_feat_size);
+    
+    % save results
+    save(prefile, 'im', 'im2', 'bg', 'imsize_orig');
+end
+
+function u = tv_regularization(g, lambda, N)
+    % compute the total variation regularization of g
+    % with parameter lambda by a simple dual algorithm
+
+    t = 1/lambda;
+    tau = 1/8;
+
+    u = zeros(size(g));
+    u1 = u; u2 = u;
+
+    for i=1:N
+        w1 = g - u;
+        w = t*u + w1/lambda;
+
+        [v1, v2] = grad(w - grad_ad(u1,u2));
+        u1 = u1 + tau*v1; u2 = u2 + tau*v2;
+        absu = sqrt(u1.*u1 + u2.*u2);
+        absu = max(absu, ones(size(absu)));
+        u1 = u1./absu; u2 = u2./absu;
+
+        u = (w - grad_ad(u1,u2))/t;
+    end
+end
+
+% support routines for tv_regularization
+function [Du1, Du2] = grad(u)
+    n1 = size(u,1); n2 = size(u,2);
+    z1 = zeros(n1,1);
+    z2 = zeros(1,n2);
+    Du1 = [u(:,2:n2) z1] - u;
+    Du2 = [u(2:n1,:); z2] - u;
+end
+
+function u = grad_ad(u1, u2)
+    n1 = size(u1,1); n2 = size(u2,2);
+    z1 = zeros(n1,1);
+    z2 = zeros(1,n2);
+    Du1 = [z1 u1(:,1:(n2-1))] - u1;
+    Du2 = [z2; u2(1:(n1-1),:)] - u2;
+    u = Du1+Du2;
+end
+
+
+function y = solve_nonlin_ellipt(u, t0, lambda)
+    % solves elliptic nonlinear regularization equation
+    % by fixed point iteration
+    
+    iter = 10;
+
+    y = u/lambda; 
+    for i = 1:iter
+        [px, py] = getsmoothedgradient(y);
+        y = solve_ellipt(u, px, py, t0, lambda);
+        
+        imagesc(y); colormap gray;
+        drawnow;
+    end
+    
+    % correct scale
+    y = y*lambda;
+end
+
+% support functions for nonlinear elliptic smoothing
+
+function y = solve_ellipt(u, px, py, t0, lambda)
+%  SOLVEPRIMALEQUATION solves the anisotropic degenerate parabolic PDE
+%    Y = SOLVEPRIMALEQUATION(Y0, PX, PY, SAT, TAU) solves the parabolic
+%    partial differential equation
+%
+%      \lambda y - div( (I - \sigma(|p|)/|p|^2 p (x) p) \grad y)  = u , 
+%                   D_\nu y = 0
+%   
+%    with a modified backwards Euler approximation scheme and finite 
+%    differences. Here, Y0 is the initial value, PX and PY are 3D-matrices 
+%    forming the time variant vector field p. The 3D-matrix U corresponds 
+%    to the right hand side, while SAT is the associated saturation 
+%    function \sigma and TAU gives the length of a time step.
+
+    N = size(u,1); M = size(u,2);
+    
+    % linear system solver parameters
+    tol = 1e-6;
+    maxit = 1000;
+    
+    % assemble the linear equations
+    rhs = u(:);
+    wgrad = spgradproj(px, py, t0);
+    A = lambda*speye(N*M) + wgrad'*wgrad;
+        
+    % solve the linear equation
+    [cury, flag] = pcg(A, rhs(:), tol, maxit);
+        
+    % write the result
+    y = reshape(cury, N, M);
+end
+
+function A = spgradproj(px, py, t0)
+%  SPGRADPROJ creates a projected gradient as a sparse matrix
+%    A = SPGRADPROJ(PX, PY, SAT) creates the operator
+%
+%         sqrt(I - \sigma(|p|)/|p|^2 p (x) p) \grad
+%
+%    as a sparse matrix.
+%    Here, p is a vector field given by (PX, PY) and 
+%    \sigma is the saturation function given by SAT. 
+%    When taking the gradient, the function is assumed to fulfil
+%    Neumann boundary conditions.
+
+    N = size(px, 1);
+    M = size(px, 2);
+    
+    % build gradient in x-direction
+    xi = 1:(N*(M-1));
+    xs = ones(size(xi));
+    gradx = sparse([xi xi], [xi xi+N], [-xs xs], N*M, N*M);
+    
+    % build gradient in y-direction
+    yi = find(mod(1:N*M, N));
+    ys = ones(size(yi));
+    grady = sparse([yi yi], [yi yi+1], [-ys ys], N*M, N*M);
+    
+    % calculate weighting
+    pabs = sqrt(px.*px + py.*py);
+    q = saturationroot(pabs/t0);
+    ind = find(pabs);
+    q(ind) = q(ind)./(pabs(ind).^2);
+    
+    % build weighting matrices
+    pxx = spdiags(1 - q(:).*px(:).*px(:), 0, N*M, N*M);
+    pxy = spdiags(-q(:).*px(:).*py(:), 0, N*M, N*M);
+    pyy = spdiags(1 - q(:).*py(:).*py(:), 0, N*M, N*M);
+    
+    % assemble
+    A = [pxx*gradx + pxy*grady; pxy*gradx + pyy*grady];
+end
+
+function q = saturation1(p)
+%  SATURATION1 Evaluates a polynomial saturation function
+%    Q = SATURATION1(P) evaluates a polynomial saturation function
+%    f pointwise at P which maps [0,1] -> [0,1] strictly monotonic 
+%    and satisfies f(0) = 0, f(1) = 1 as well as 
+%    f'(0) = f''(0) = f'(1) = f''(1) = 0.
+
+    q = ((6*p - 15).*p + 10).*p.^3.*(p <= 1) + (p > 1);
+    %q = p.^2;
+end
+
+function q = saturationroot(p, sat)
+%  SATURATIONROOT evaluates the square root of a saturation function
+%    Q = SATURATIONROOT(P, SAT) evaluates the saturation function at P
+%    which is associated to the square root of the diffusion tensor 
+%    with saturation function SAT.
+
+    q = 1 - sqrt(max(0,1 - saturation1(p))); 
+end
+
+function [px,py] = getsmoothedgradient(u)
+    u = padarray(u, [1 1],'replicate', 'both');
+    
+    maskx = [-1 0 1; -2 0 2; -1 0 1]/8;
+    masky = [-1 -2 -1; 0 0 0; 1 2 1]/8;
+        
+    px = conv2(u, maskx, 'valid');
+    py = conv2(u, masky, 'valid');
+end
+
+
+
+function bg = getbackground(im,bgthres,feature_size)
+    % perform a simple background detection by thresholding
+    % the gradient
+
+    % constant continuation
+    im = padarray(im, [1 1], 'replicate', 'both');
+    
+    % Sobel masks
+    maskx = [-1 0 1; -2 0 2; -1 0 1]/8;
+    masky = [-1 -2 -1; 0 0 0; 1 2 1]/8;
+    
+    Dx = conv2(im, maskx, 'valid');
+    Dy = conv2(im, masky, 'valid');
+    Dabs2 = Dx.^2 + Dy.^2;
+    Dabs = sqrt(Dabs2);
+
+    % detect background and add to penalization
+    bg = (Dabs < bgthres);
+    se = strel('disk',3);
+    bg = imerode(bg,se);
+    
+    % do some segmentation a throw out the small parts
+    L = bwlabel(bg > 0);
+    N = max(L(:));
+    for i=1:N
+        if (sum(bg(L == i)) <= feature_size)
+            bg(L == i) = 0;
+        end
+    end
+    
+    bg = imdilate(bg,se);
+end
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% segmentation part
+
+
+function param = segment_cells(param, im, im2, bg, imsize_orig, segfile)
+    % main cell segmentation function
+
+    isdebug = isfield(param,'debug');
+    
+    % perform active contour algorithm
+    mesg(isdebug, 'Performing active contour algorithm...');
+
+    % parameters for findseed
+    lambda = param.seg.seg_seed_edge_weight; % 20;
+    N = param.seg.seg_seed_smoothing_iter; % 30;
+    thres = param.seg.seg_seed_min_dist; % 5;
+    [sx, sy] = findseeds(im2,bg,lambda,N,thres,isdebug);
+    
+    % random permutation for more fun watching
+    pp = randperm(length(sx));
+    sx = sx(pp); sy = sy(pp);
+    
+    % parameters for active contours
+    s_lambda_g = param.seg.seg_edge_weight; %17.5;
+    s_alpha_g = param.seg.seg_alpha; % 0.1;
+    s_beta_g = param.seg.seg_beta; % 2;
+    s_R = param.seg.seg_initial_radius; % 2;
+    s_points = param.seg.seg_snake_points; % 24;
+    s_tolerance = param.seg.seg_tolerance;
+    
+    snakes = zeros(s_points+1, 2, length(sx));
+    Fsnake = zeros(length(sx), 1);
+    for i=1:length(sx)
+        % snake loop
+        if (i == 1)
+            cr = char([]);
+        else
+            cr = char(13);
+        end
+        mesg(isdebug, sprintf('%sSeeding at (%f,%f)...', cr, sx(i), sy(i)));
+        [px,py,F] = snake(im, im2, bg, s_points, sx(i), sy(i), s_R, s_alpha_g, ...
+            s_beta_g, s_lambda_g, s_tolerance, param);
+        snakes(:,:,i) = [px py];
+        Fsnake(i) = F;
+    end
+    
+    % visualization
+    imagesc(im);
+    hold on;
+    for i=1:length(sx)
+        p = snakes(:,:,i);
+        plot(p(:,1), p(:,2),'r');
+    end
+    hold off;
+    
+    % postprocessing
+    mesg(isdebug, 'Detecting cells...');
+    segments = postprocesssnakes(im, imsize_orig, snakes, Fsnake, param);
+    
+    save(segfile, 'im', 'segments', 'snakes', 'Fsnake');
+end
+
+function [sx, sy] = findseeds(im, bg, lambda, N, thres, debug)
+    % find seeding point for active contour algorithm
+
+    % smooth gradient image
+    
+    mesg(debug, 'Computing edge image...');
+    G = creategradientpenalization(im,zeros(size(im)),lambda,1).*(1-bg) + bg;
+    G = own_erode(G);
+    
+    
+    mesg(debug, 'Smoothing edges...');
+    mask = [0 1 0; 1 4 1; 0 1 0]/8;
+    for i=1:N
+        G = conv2(G,mask,'same');
+    end
+    
+    % find maxima
+    mesg(debug, 'Finding local maxima...');
+    s = find(findmaxima(G)) - 1;
+    s = s(bg(s) == 0);   
+    sy = mod(s, size(im,1));
+    sx = round((s - sy)/size(im,1));
+    imagesc(im); hold on; plot(sx,sy,'.'); hold off;
+    
+    % cluster maxima (very inefficiently)
+    mesg(debug, 'Clustering maxima...');
+    D = distancematrix(sx, sy);
+    while (sum((D(:) < thres) & (D(:) > 0)) > 0)
+        % throw out smallest entry
+        ind = find(D);
+        Dmin = min(D(ind));
+        k = find(D == Dmin,1)-1;
+        i = mod(k,length(sx));
+        j = round((k-i)/length(sx));
+        
+        % link
+        i = i+1; j = j+1;
+        sx(i) = (sx(i) + sx(j))/2;
+        sy(i) = (sy(i) + sy(j))/2;
+        ind = [1:j-1 j+1:length(sx)]';
+        sx = sx(ind);
+        sy = sy(ind);
+        
+        % new distance matrix
+        D = distancematrix(sx, sy);
+        %imagesc(D); drawnow;
+    end
+    
+    imagesc(im); hold on; plot(sx,sy,'.'); hold off;
+end
+
+function D = distancematrix(sx, sy)
+    N = length(sx);
+    
+    Dx = repmat(sx',N,1) - repmat(sx,1,N);
+    Dy = repmat(sy',N,1) - repmat(sy,1,N);
+    D = sqrt(Dx.*Dx + Dy.*Dy);
+end
+    
+function F = own_erode(G)
+    % hand-made 5-point erosion 
+
+    G1 = [G(2:end,:); G(end,:)];
+    G2 = [G(1,:); G(1:end-1,:)];
+    G3 = [G(:,2:end) G(:,end)];
+    G4 = [G(:,1) G(:,1:end-1)];
+    F = min(min(min(min(G,G1),G2),G3),G4);
+end
+
+function v = findmaxima(u)
+    % returns local maxima
+
+    R = [(u(:,1:end-1) > u(:,2:end)) zeros(size(u,1),1)];
+    L = [zeros(size(u,1),1) (u(:,2:end) > u(:,1:end-1))];
+    U = [(u(1:end-1,:) > u(2:end,:)); zeros(1,size(u,2))];
+    D = [zeros(1,size(u,2)); (u(2:end,:) > u(1:end-1,:))];
+    v = double(R.*L.*U.*D);
+end
+
+
+function G = creategradientpenalization(im,bg,lambda,tau)
+    % creates an image which gives high values in flat regions
+    % of im and low values in steep regions
+    % use lambda to tune results
+
+    % constant continuation
+    %im = padarray(im, [1 1], 'replicate', 'both');
+    im = [im(:,1) im im(:,end)];
+    im = [im(1,:); im; im(end,:)];
+    
+    % Sobel masks
+    maskx = [-1 0 1; -2 0 2; -1 0 1]/8;
+    masky = [-1 -2 -1; 0 0 0; 1 2 1]/8;
+    
+    Dx = conv2(im, maskx, 'valid');
+    Dy = conv2(im, masky, 'valid');
+    Dabs2 = Dx.^2 + Dy.^2;
+    %Dabs = sqrt(Dabs2);
+    G = 1./(1 + Dabs2/lambda^2);
+    
+    G = G*tau + im(2:end-1,2:end-1)/255*(1-tau) + 1000*bg; 
+end
+
+% main segmentation routine
+function [px, py, F1] = snake(im, im2, bg, N, x, y, R, alpha, beta, lambda, ...
+                                tol, param)
+    % computes a snake with N points in im 
+    % seeded at (x,y) with radius R
+    % and parameters alpha, beta and lambda
+    % im     - original image
+    % im2    - smoothed image
+    % bg     - background image
+    % N      - number of snake points
+    % (x,y)  - seeding coordinate
+    % R      - initial radius
+    % alpha  - smoothness parameter
+    % beta   - inflation parameter
+    % lambda - edge weight
+    % tol    - iteration tolerance
+   
+    N = max(N,4);
+    isdebug = isfield(param,'debug');
+   
+    % step-size search parameters
+    stepbeta = 0.5;
+    
+    tryfirst = 1;
+    
+    % init gradient image
+    G = creategradientpenalization(im2, bg, lambda, 0.5);
+    G2 = creategradientpenalization(im, bg, lambda, 0.5);
+    
+    % init snake
+    t = linspace(0,2*pi,N+1)';
+    px = x + R*cos(t);
+    py = y + R*sin(t);
+    
+    % init iteration
+    [F, F1] = functionalvalue_grad(G, px, py, alpha, beta);
+    Fold = F + 1;
+ 
+    %preallocation
+    Dx = zeros(size(px,1)+1,1);
+    Dy = zeros(size(py,1)+1,1);
+    
+    while ((Fold - F > tol) || tryfirst)
+        if (Fold - F <= tol)
+            % change to original image and try to refine
+            tryfirst = 0;
+            G = G2;
+            
+            [F,F1] = functionalvalue_grad(G,px,py,alpha,beta);
+            Fold = F + 1;
+        else 
+            Fold = F;
+        end
+        
+        % compute gradient
+        % integal part
+        [Dx, Dy] = integratepathgradient(G, px, py, 0, 0, 0);
+        % take boundary condition into account
+        Dx(1) = Dx(1) + Dx(N+1);
+        Dy(1) = Dy(1) + Dy(N+1);
+        Dx = Dx(1:N);
+        Dy = Dy(1:N);
+        
+        % penalization part
+        if (0)
+            px2 = [px(N-1:N); px; px(2)];
+            py2 = [py(N-1:N); py; py(2)];
+            mask = [1; -4; 6; -4; 1];
+        else
+            px2 = [px(N); px];
+            py2 = [py(N); py];
+            mask = [-1; 2; -1];
+        end
+        Dx2 = conv2(px2,mask,'valid');
+        Dy2 = conv2(py2,mask,'valid');
+        Dx = Dx + alpha*Dx2;
+        Dy = Dy + alpha*Dy2;
+        
+        % area part
+        area = -sum(py(1:end-1).*px(2:end) - px(1:end-1).*py(2:end))/2;
+        px2 = [px(N); px];
+        py2 = [py(N); py];
+        mask = [1; 0; -1]/2;
+        Dx2 = conv2(px2,mask,'valid');
+        Dy2 = conv2(py2,mask,'valid');
+        Dx = Dx - beta*Dy2/(2*sqrt(area));
+        Dy = Dy + beta*Dx2/(2*sqrt(area));
+        
+        % make it a closed curve again
+        Dx(size(Dx,1)+1) = Dx(1);
+        Dy(size(Dy,1)+1) = Dy(1);
+        
+        % do step-size search
+        s = 0.8/max(sqrt(Dx.*Dx + Dy.*Dy));
+        Fnew = F + 1;
+        while(Fnew >= F)
+            s = s*stepbeta;
+            pxnew = px - s*Dx;
+            pynew = py - s*Dy;
+            
+            [Fnew, F1] = functionalvalue_grad(G,pxnew,pynew,alpha,beta);
+        end
+        
+        % do gradient step
+        px = pxnew; py = pynew;
+        F = Fnew;
+    end
+    
+    % visualize
+    if(isdebug)
+      if (tryfirst)
+        imagesc(im2); 
+      else
+        imagesc(im);
+      end
+      colormap gray;
+      hold on;
+      plot(px,py,'r');
+      hold off;
+      drawnow;
+    end
+end
+
+% snake support routines
+
+function [px, py, pt] = cutpath(x, y)
+    % cuts a piecewise linear path given by [x y] into
+    % shorter such that each segment does not cross an integer
+    % border
+    
+    N = length(x);
+    array_size = 0;
+    array_size = ((floor(max(x)) - floor(min(x))) + (floor(max(y)) - floor(min(y))));
+    if((array_size) < 10)
+        array_size = array_size + N - 1;
+    else
+        array_size = array_size * 2 + N;
+    end;
+    px = zeros(1,array_size);
+    py = zeros(1,array_size);
+    pt = zeros(1,array_size);
+    %px = zeros(1,N);
+    %py = zeros(1,N);
+    %pt = zeros(1,N);
+    count = 0;
+    
+    for i=1:N-1
+        % current linear segment
+        x1 = x(i); y1 = y(i);
+        x2 = x(i+1); y2 = y(i+1);
+        
+        % difference
+        dx = x2-x1; dy = y2-y1;
+        % sign of difference
+        sx = sign(dx); 
+        if (sx == 0)
+            sx = 1;
+        end
+        sy = sign(dy);
+        if (sy == 0)
+            sy = 1;
+        end
+            
+        % add node
+        count = count + 1;
+        px(count) = x1;
+        py(count) = y1;
+        pt(count) = i;
+        
+        % initialize
+        xc = x1; yc = y1; t = 0;
+        while (((floor(xc) ~= floor(x2)) && (xc ~= ceil(x2))) ...
+                || ((floor(yc) ~= floor(y2)) && (yc ~= ceil(y2))))
+            % coordinate for new node
+            if (xc == floor(xc))
+                xnew = xc + sx;
+            else
+                xnew = floor(xc) + (sx == 1);
+            end
+            
+            if (yc == floor(yc))
+                ynew = yc + sy;
+            else
+                ynew = floor(yc) + (sy == 1);
+            end
+            tx = (xnew - x1)/dx;
+            ty = (ynew - y1)/dy;
+            
+            % decide whether lines cuts x or y
+            xcut = (tx < ty);
+
+
+
+            
+            if (xcut)
+                xc = xnew; yc = y1 + tx*dy;
+                t = tx;
+            else
+                xc = x1 + ty*dx; yc = ynew;
+                t = ty;
+            end
+
+            % add new node
+            count = count + 1;
+            px(count) = xc;
+            py(count) = yc;
+            pt(count) = i+t;
+        end
+    end
+     count = count + 1;
+     px(count) = x(N);
+     py(count) = y(N);
+     pt(count) = N;
+end
+
+function [F, px, py, pt] = integratepath(G, px, py)
+    % integrates G over the path given by [px py]
+    % G is interpolated linearly
+
+    g00 = 0;
+    g10 = 0;
+    g01 = 0;
+    g11 = 0;
+    N = length(px);
+    [px, py, pt] = cutpath(px, py);
+    N = length(px);
+    
+    F = 0;
+    
+    y1 = py(1:N-1);
+    y2 = py(2:N);
+    ii = min(floor(y1),floor(y2));
+    x1 = px(1:N-1);
+    x2 = px(2:N);
+    jj = min(floor(x1),floor(x2));
+
+    g00 = zeros(1,length(ii));
+    g10 = zeros(1,length(ii));
+    g01 = zeros(1,length(ii));
+    g11 = zeros(1,length(ii));
+    
+    ii0_tmp = zeros(1,length(ii));
+    jj0_tmp = zeros(1,length(ii));
+    ii1_tmp = zeros(1,length(ii));
+    jj1_tmp = zeros(1,length(ii));
+    
+    %write all possible values for G(X/Y) in an array
+    for zaehler = 1:length(ii)
+         ii0_tmp(zaehler) = ii(1,zaehler);
+         jj0_tmp(zaehler) = jj(1,zaehler);
+         ii1_tmp(zaehler) = ii(1,zaehler)+1;
+         jj1_tmp(zaehler) = jj(1,zaehler)+1;
+    end;
+    %filter all values out which don't match the size of G
+    ii0_tmp(~((ii0_tmp(1:N-1) <= size(G,1)))) = 0;
+    jj0_tmp(~((jj0_tmp(1:N-1) <= size(G,2)))) = 0;
+    ii1_tmp(~((ii1_tmp(1:N-1) <= size(G,1)))) = 0;
+    jj1_tmp(~((jj1_tmp(1:N-1) <= size(G,2)))) = 0;
+    
+    for zaehler = 1:length(ii)
+        ii0 = ii0_tmp(zaehler);
+        jj0 = jj0_tmp(zaehler);
+        ii1 = ii1_tmp(zaehler);
+        jj1 = jj1_tmp(zaehler);
+         
+        if ((ii0 >=1) && (jj0 >= 1))
+            g00(zaehler) = G(ii0, jj0);
+        else
+            g00(zaehler) = 1;
+        end;
+
+        if ((ii0 >=1) && (jj1 >= 1))
+            g10(zaehler) = G(ii0, jj1);
+        else
+            g10(zaehler) = 1;
+        end;
+      
+        if ((ii1 >=1) && (jj0 >= 1))
+            g01(zaehler) = G(ii1, jj0);
+        else
+            g01(zaehler) = 1;
+        end;
+        
+        if ((ii1 >=1) && (jj1 >= 1))
+            g11(zaehler) = G(ii1, jj1);
+        else
+            g11(zaehler) = 1;
+        end;  
+    end;
+
+
+    t1 = pt(2:N);
+    t2 = pt(1:N-1);
+    t = t1 - t2;
+
+    % shift to origin
+    x1 = x1 - jj;
+    y1 = y1 - ii;
+    x2 = x2 - jj;
+    y2 = y2 - ii;
+
+    T = g00 + (g10 - g00).*(x1+x2)./2 + (g01 - g00).*(y1+y2)./2 + (g11 - g10 - g01 + g00).*(2.*x1.*y1 + x1.*y2 + x2.*y1 + 2.*x2.*y2)./6;
+
+    F = F + T .* t;
+    F = sum(F(1,:));
+
+end
+
+function v = getval(G,i,j)
+    if ((i >=1) && (i <= size(G,1)) && (j >= 1) && (j <= size(G,2)))
+        v = G(i,j);
+    else
+        v = 1;
+    end
+end
+
+
+function [Dx, Dy] = integratepathgradient(G, px, py, cpx, cpy, cpt)
+    % computes the gradient of the
+    % integration of G over the path given by [px py]
+    % G is interpolated linearly
+    
+    M = length(px);
+    [px, py, pt] = cutpath(px, py);
+    N = length(px);
+
+    Dx = zeros(M,1);
+    Dy = zeros(M,1);
+
+    y1 = py(1:N-1);
+    y2 = py(2:N);
+    ii = min(floor(y1),floor(y2));
+    x1 = px(1:N-1);
+    x2 = px(2:N);
+    jj = min(floor(x1),floor(x2));
+
+    t = pt(2:N);
+    t2 = pt(1:N-1);
+    tdiff = t - t2;
+    k = floor(pt(1:N-1));
+
+    t1 = pt(1:N-1) - k;
+    
+    g00 = zeros(1,length(ii));
+    g10 = zeros(1,length(ii));
+    g01 = zeros(1,length(ii));
+    g11 = zeros(1,length(ii));
+    
+    ii0_tmp = zeros(1,length(ii));
+    jj0_tmp = zeros(1,length(ii));
+    ii1_tmp = zeros(1,length(ii));
+    jj1_tmp = zeros(1,length(ii));
+    
+    %write all possible values for G(X/Y) in an array
+    for zaehler = 1:length(ii)
+         ii0_tmp(zaehler) = ii(1,zaehler);
+         jj0_tmp(zaehler) = jj(1,zaehler);
+         ii1_tmp(zaehler) = ii(1,zaehler)+1;
+         jj1_tmp(zaehler) = jj(1,zaehler)+1;
+    end;
+    %filter all values out which don't match the size of G
+    ii0_tmp(~((ii0_tmp(1:N-1) <= size(G,1)))) = 0;
+    jj0_tmp(~((jj0_tmp(1:N-1) <= size(G,2)))) = 0;
+    ii1_tmp(~((ii1_tmp(1:N-1) <= size(G,1)))) = 0;
+    jj1_tmp(~((jj1_tmp(1:N-1) <= size(G,2)))) = 0;
+    
+    for zaehler = 1:length(ii)
+         ii0 = ii0_tmp(zaehler);
+         jj0 = jj0_tmp(zaehler);
+         ii1 = ii1_tmp(zaehler);
+         jj1 = jj1_tmp(zaehler);
+         
+        if ((ii0 >=1) && (jj0 >= 1))
+            g00(zaehler) = G(ii0, jj0);
+        else
+            g00(zaehler) = 1;
+        end;
+
+        if ((ii0 >=1) && (jj1 >= 1))
+            g10(zaehler) = G(ii0, jj1);
+        else
+            g10(zaehler) = 1;
+        end;
+      
+        if ((ii1 >=1) && (jj0 >= 1))
+            g01(zaehler) = G(ii1, jj0);
+        else
+            g01(zaehler) = 1;
+        end;
+        
+        if ((ii1 >=1) && (jj1 >= 1))
+            g11(zaehler) = G(ii1, jj1);
+        else
+            g11(zaehler) = 1;
+        end;  
+    end;
+    
+    % shift to origin
+    x1 = x1 - jj;
+    y1 = y1 - ii;
+    x2 = x2 - jj;
+    y2 = y2 - ii;
+
+    % integrate gradient of interpolated function along path
+    % zeroth order terms
+    Tx0 = (g10-g00) + (g00-g10-g01+g11).*(y1+y2)./2; 
+    Ty0 = (g01-g00) + (g00-g10-g01+g11).*(x1+x2)./2; 
+    % first order term
+    Tx1 = (g10-g00)./2 + (g00-g10-g01+g11).*(y2./3+y1./6);
+    Ty1 = (g01-g00)./2 + (g00-g10-g01+g11).*(x2./3+x1./6); 
+
+    Fx0 = Tx0.*tdiff; % int ... dt
+    Fy0 = Ty0.*tdiff;
+    Fx1 = Tx0.*tdiff.*t1 + Tx1.*tdiff.^2; % int ... t dt
+    Fy1 = Ty0.*tdiff.*t1 + Ty1.*tdiff.^2;
+
+    k(:,(k > M - 1) | (k < 1)) = [];
+    
+
+    %Dx(k(1:length(k-1))) = Dx(k(1:length(k-1))) + Fx0(1:length(k-1)) - Fx1(1:length(k-1)); % int ... (1-t) dt
+    %Dy(k(1:length(k-1))) = Dy(k(1:length(k-1))) + Fy0(1:length(k-1)) - Fy1(1:length(k-1)); 
+    %Dx(k(1:length(k-1))+1) = Dx(k(1:length(k-1))+1) + Fx1(1:length(k-1)); % int ... t dt
+    %Dy(k(1:length(k-1))+1) = Dy(k(1:length(k-1))+1) + Fy1(1:length(k-1));
+    %Dx = Dx'
+    %Dy = Dy';
+    
+	%time consuming
+	for zaehler = 1:length(k-1)
+        Dx(k(zaehler)) = Dx(k(zaehler)) + Fx0(zaehler) - Fx1(zaehler); % int ... (1-t) dt
+        Dy(k(zaehler)) = Dy(k(zaehler)) + Fy0(zaehler) - Fy1(zaehler); 
+        Dx(k(zaehler)+1) = Dx(k(zaehler)+1) + Fx1(zaehler);   % int ... t dt
+        Dy(k(zaehler)+1) = Dy(k(zaehler)+1) + Fy1(zaehler);
+    end;
+
+end
+
+
+function [F, F1, cpx, cpy, cpt] = functionalvalue_grad(G, px, py, ...
+                                                       alpha, beta)
+    % computes the value of the functional
+    % int_1^N G(px(t),py(t)) dt + alpha/2*||D (px,py)||^2 -
+    % beta*int_Omega 1 dx
+    % where D denotes the usual approximation of the
+    % second derivative
+    
+    % compute integral
+    [F1,cpx,cpy,cpt] = integratepath(G,px,py);
+    
+    % alpha/2*||D (px,py)||^2
+    N = length(px);
+    if (0)
+        px2 = [px(N-1); px];
+        py2 = [py(N-1); py];
+        mask = [1; -2; 1];
+    else
+        px2 = px; py2 = py;
+        mask = [-1; 1];
+    end
+    Dx = conv2(px2,mask,'valid');
+    Dy = conv2(py2,mask,'valid');
+    Dabs2 = Dx.^2 + Dy.^2;
+    F2 = alpha/2*sum(Dabs2(:));
+    
+    % area part
+    F3 = sum(py(1:end-1).*px(2:end) - px(1:end-1).*py(2:end))/2;
+    if (F3 >= 0)
+        F = Inf;
+        return;
+    end
+    
+    F = F1 + F2 - beta*sqrt(-F3);
+end
+
+function v = postprocesssnakes(im, imsize_orig, snakes, Fsnake, param)
+    % only keep the snakes with the best fit and
+    % obtain domain information
+
+    isdebug = isfield(param,'debug');
+    
+    v = zeros(imsize_orig);
+    [X,Y] = meshgrid(1:imsize_orig(2), 1:imsize_orig(1));
+    
+    [F, I] = sort(Fsnake);
+    N = size(snakes,3);
+    
+    % scale snakes to original size
+    if (size(im,2) > 0)
+        xfac = imsize_orig(2)/size(im,2);
+    else 
+        xfac = 1;
+    end
+    if (size(im,1) > 0)
+        yfac = imsize_orig(1)/size(im,1);
+    else
+        yfac = 1;
+    end
+    snakes(:,1,:) = (snakes(:,1,:)-1)*xfac+1;
+    snakes(:,2,:) = (snakes(:,2,:)-1)*yfac+1;
+    
+    curindex = 1;
+    cr = char([]);
+    for i=1:N
+        px = snakes(:,1,I(i));
+        py = snakes(:,2,I(i));
+        in = inpolygon(X,Y,px,py);
+        area = sum(in(:));    
+        overlaparea = sum(v(in) ~= 0);
+        if (overlaparea/area > 0.5)
+            
+            mesg(1, sprintf('%sSnake %d intersects with other snakes. Discarding.', cr, I(i)));
+            cr = char(13);
+        else
+            in2 = in & (v == 0);
+            v(in2) = curindex;
+            curindex = curindex + 1;
+        end
+    end
+    imagesc(v);
+end
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% postprocessing part
+
+
+function param = postprocess_cells(param, im, segments, fluor, pngfile, resfile)
+    % main postprocessing routine
+    
+    isdebug = isfield(param,'debug');
+    
+    % evaluate cell and fluorscence data
+    cell_char = postprocesssegments(segments);
+    cell_annot = {'center of mass x', 'center of mass y', 'mass', 'perimeter', ...
+        'spheroid width', 'spheroid height', 'spheroid volume', 'spheroid surface area'};
+    if (~isempty(fluor))
+        fluorsize = size(fluor);
+        if (sum(size(im) == fluorsize(1:2)) == 2)
+            fluor_char = postprocessfluor(fluor, segments, cell_char, ...
+                param.seg.post_fluor_thres, param);
+            fluor_annot = {'mass', 'perimeter', 'mass/cell mass', 'mass/perimeter', ...
+                'expectation x', 'expectation y', 'covariance 1', 'covariance 2', ...
+                'scatter ratio'};
+        else
+            fluor_char = []; fluor_annot = {};
+            mesg(isdebug,'Transmission and fluorescence data sizes do not match. Skipping evaluation.');
+        end
+    else
+        fluor_char = []; fluor_annot = {};
+        mesg(isdebug, 'Fluorescence data is empty. Not evaluating.')
+    end
+    
+    % creates annotated color image
+    if (param.seg.post_make_image)
+        cim = segmentcolorimage(im, segments); 
+        
+        % setup page
+        oldfig = gcf; fig = figure;
+        if (isunix)
+            set(fig,'PaperSize', [12 12], 'PaperPosition', [0 0 12 12]);
+        else
+            set(fig,'PaperSize', [8 8], 'PaperPosition', [0 0 8 8]);
+        end
+        axes('position', [0 0 1 1]);
+        set(gca,'XTick', []);
+        set(gca,'YTick', []);
+        imagesc(cim);
+    
+        % draw cell numbers
+        hold on;
+        N = size(cell_char,1);
+        for j=1:N
+            x = cell_char(j,1);
+            y = cell_char(j,2);
+            xx = round(x); yy = round(y);
+            xx = max(1,min(xx,size(cim,2)));
+            yy = max(1,min(yy,size(cim,1)));
+        
+            val = 0.3*double(cim(yy,xx,1)) + 0.59*double(cim(yy,xx,2)) ...
+                + 0.11*double(cim(yy,xx,3));
+            if (val >= 96)
+                text(x,y,0,sprintf('%d',j),'Color','black','HorizontalAlignment','center','Fontsize',6);
+            else
+                text(x,y,0,sprintf('%d',j),'Color','white','HorizontalAlignment','center','Fontsize',6);
+            end
+        end
+        hold off;
+        drawnow;
+    
+        % save image (600x600)
+        print(fig,'-dpng','-r120',pngfile);
+        close(fig);
+        figure(oldfig);
+    end
+    
+    save(resfile, 'cell_char', 'cell_annot', 'fluor_char', 'fluor_annot');
+end
+
+% postprocessing functions
+function cim = segmentcolorimage(im, segments)
+    % create colorful image showing the segmented cells
+    
+    num = max(segments(:));
+    
+    % create colors
+    pal = hsv(num);
+    pp = randperm(num);
+    pal = [1 1 1; pal(pp,:)];
+    
+    cim = zeros([size(im) 3]);
+    N = size(im,1);
+    M = size(im,2);
+    
+    % multiply with color value
+    for i=1:N
+        for j=1:M
+            for k=1:3
+                cim(i,j,k) = im(i,j).*pal(segments(i,j)+1,k);
+            end
+        end
+    end
+    
+    cim = uint8(cim);
+end
+
+
+function cells = postprocesssegments(segments)
+    % compute characteristic values for each cell
+
+    [I,J] = meshgrid(1:size(segments,2),1:size(segments,1));
+    N = max(segments(:));
+    len = size(segments);
+    
+    cells = zeros(N,8);
+    
+    for i=1:N
+        mask = (segments == i);
+        
+        % size and center of mass
+        area = sum(mask(:));
+        if (area > 0)
+            comx = sum(I(:).*mask(:))/area;
+            comy = sum(J(:).*mask(:))/area;
+        
+            % perimeter
+            mask2 = [mask(2:end,:); zeros(1,len(2))] | [zeros(1,len(2)); mask(1:end-1,:)] ...
+                | [mask(:,2:end) zeros(len(1),1)] | [zeros(len(1),1) mask(:,1:end-1)] ...
+                | mask;
+            mask2 = mask2.*(1-mask);
+            perimeter = sum(mask2(:));
+        
+            % second moments
+            mxx = sum((I(:) - comx).^2.*mask(:));
+            mxy = sum((I(:) - comx).*(J(:) - comy).*mask(:));
+            myy = sum((J(:) - comy).^2.*mask(:));
+        
+            sigma = eig([mxx mxy; mxy myy]);
+            width = sqrt(sigma(2)/area)*4;
+            height = sqrt(sigma(1)/area)*4;
+            if (width < height)
+                swap = height;
+                height = width;
+                width = swap;
+            end
+        
+            % spheroid volume and surface area
+            volume = pi*width*height^2/6;
+        
+            e = sqrt(1- height^2/width^2);
+            surface = pi/2*(height^2 + height*width/e*asin(e));
+        
+            cells(i,:) = [comx comy area perimeter width height volume surface];
+        end
+    end
+end
+
+function fluor_char = postprocessfluor(fluor, segments, cell_char, thres, param)
+    % compute characteristic values for fluorescence data
+
+    isdebug = isfield(param,'debug');
+    
+    % threshold
+    if (thres ~= 0) 
+        fluor = (fluor > thres);
+    end
+    
+    len = size(fluor);
+    len = [len(:); ones(3-length(len))];
+    [I,J] = meshgrid(1:len(2),1:len(1));
+    
+    N = length(cell_char);
+    fluor_char = zeros(N,9);
+    
+    % save and flatten 3d image
+    fluor3 = cat(3, zeros(len(1),len(2),1), fluor, zeros(len(1),len(2),1));
+    fluor = sum(fluor,3);
+    
+    for j=1:N
+        if (i == 1)
+            cr = char([]);
+        else
+            cr = char(13);
+        end
+        mesg(isdebug, sprintf('%sFluorescence data post processing [2] ''%d'' of ''%d''.', cr, j, N));
+        % get cell characteristics
+        cell_mass = cell_char(j,3);
+        cell_perimeter = cell_char(j,4);
+        
+        ind = (segments == j); 
+        % mass
+        fluor_mass = sum(fluor(ind));
+        
+        % perimeter
+        if (len(3) == 1) 
+            % 2d case
+            ind1 = (ind.*fluor ~= 0);
+            ind2 = [ind1(2:end,:); zeros(1,len(2))] | [zeros(1,len(2)); ind1(1:end-1,:)] ...
+                   | [ind1(:,2:end) zeros(len(1),1)] | [zeros(len(1),1) ind1(:,1:end-1)] ...
+                   | ind1;
+            ind2 = ind2.*(1-ind1);
+            fluor_perimeter = sum(ind2(:));
+        else
+            % 3d case
+            
+            % temporarily increase len(3) (hack!)
+            len(3) = len(3) + 2;
+            
+            %size(repmat(ind, [1 1 len(3)]))
+            %size(fluor3)
+            
+            ind1 = repmat(ind, [1 1 len(3)]).*fluor3;
+            
+            %size(cat(1, ind1(2:end,:,:), zeros(1,len(2),len(3))))
+            %size(cat(1, zeros(1,len(2),len(3)), ind1(1:end-1,:,:)))
+            %size(cat(2, ind1(:,2:end,:), zeros(len(1),1,len(3))))
+            %size(cat(2, zeros(len(1),1,len(3)), ind1(:,1:end-1,:)))
+            %size(cat(3, ind1(:,:,2:end), zeros(len(1),len(2),1)))
+            %size(cat(3, zeros(len(1),len(2),1), ind1(:,:,1:end-1)))
+            %size(ind1)
+            
+            % compute border
+            ind2 = cat(1, ind1(2:end,:,:), zeros(1,len(2),len(3))) ...
+                   | cat(1, zeros(1,len(2),len(3)), ind1(1:end-1,:,:)) ...
+                   | cat(2, ind1(:,2:end,:), zeros(len(1),1,len(3))) ...
+                   | cat(2, zeros(len(1),1,len(3)), ind1(:,1:end-1,:)) ...
+                   | cat(3, ind1(:,:,2:end), zeros(len(1),len(2),1)) ...
+                   | cat(3, zeros(len(1),len(2),1), ind1(:,:,1:end-1)) ...
+                   | ind1;
+            ind2 = ind2.*(1-ind1);
+            fluor_perimeter = sum(ind2(:));            
+            
+            % decrease len(3)
+            len(3) = len(3) - 2;
+        end
+        
+        % mean mass
+        if (cell_mass > 0)
+            fluor_mean_mass = fluor_mass/cell_mass;
+        else
+            fluor_mean_mass = 0;
+        end
+        
+        % perimeter mass
+        if (fluor_perimeter > 0)
+            fluor_perimeter_mass = fluor_mass/fluor_perimeter;
+        else
+            fluor_perimeter_mass = 0;
+        end
+        
+        if (fluor_mass > 0)
+            % expectation
+            fluor_exp_x = sum(fluor(ind).*I(ind))/fluor_mass;
+            fluor_exp_y = sum(fluor(ind).*J(ind))/fluor_mass;        
+        
+            % covariance
+            covar_xx = sum((I(:) - fluor_exp_x).^2.*ind(:).*fluor(:))/fluor_mass;
+            covar_yy = sum((J(:) - fluor_exp_y).^2.*ind(:).*fluor(:))/fluor_mass;
+            covar_xy = sum((I(:) - fluor_exp_x) ...
+                .*(J(:) - fluor_exp_y).*ind(:).*fluor(:))/fluor_mass;
+            fluor_covar_eig = sqrt(eig([covar_xx covar_xy; covar_xy covar_yy]))';
+        else
+            fluor_exp_x = cell_char(j,1);
+            fluor_exp_y = cell_char(j,2);
+            
+            fluor_covar_eig = [0 0];
+        end
+        
+        % scatter ratio
+        if (cell_char(j,5)*cell_char(j,6) ~= 0)
+            fluor_scatter_ratio = prod(fluor_covar_eig)/...
+                (cell_char(j,5)*cell_char(j,6));
+        else
+            fluor_scatter_ratio = 0;
+        end
+        
+        fluor_char(j,:) = [fluor_mass fluor_perimeter fluor_mean_mass ...
+                fluor_perimeter_mass fluor_exp_x fluor_exp_y fluor_covar_eig(2) ...
+                fluor_covar_eig(1) fluor_scatter_ratio];
+    end
+end

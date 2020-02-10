@@ -1,0 +1,3 @@
+#!/bin/bash
+matlab -nosplash -nodesktop -r "main('quit')"
+reset # seems to be necessary as MATLAB messes up the terminal

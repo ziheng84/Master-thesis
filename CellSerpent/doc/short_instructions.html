@@ -1,0 +1,444 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html>
+<head>
+  <meta name="generator" content=
+  "HTML Tidy for Linux (vers 25 March 2009), see www.w3.org">
+  <meta http-equiv="CONTENT-TYPE" content=
+  "text/html; charset=utf-8">
+
+  <title></title>
+  <meta name="GENERATOR" content="LibreOffice 3.4 (Unix)">
+  <style type="text/css">
+      <!--
+                @page { margin: 2cm }
+                TD P { margin-bottom: 0.21cm }
+                H1 { margin-bottom: 0.21cm }
+                H1.western { font-family: "Arial", sans-serif; font-size: 16pt }
+                H1.cjk { font-family: "Bitstream Vera Sans"; font-size: 16pt }
+                H1.ctl { font-family: "Bitstream Vera Sans"; font-size: 16pt }
+                P { margin-bottom: 0.21cm }
+                H2 { margin-bottom: 0.21cm }
+                H2.western { font-family: "Arial", sans-serif; font-size: 14pt; font-style: italic }
+                H2.cjk { font-size: 14pt; font-style: italic }
+                H2.ctl { font-family: "Bitstream Vera Sans"; font-size: 14pt; font-style: italic }
+                H3.ctl { font-family: "Bitstream Vera Sans" }
+                A:link { so-language: zxx }
+        -->
+  </style>
+</head>
+
+<body lang="de-DE" dir="ltr">
+  <h1 class="western">CellSerpent</h1>
+
+  <h2 class="western">Short instructions</h2>
+
+  <p>All features of the tool may be accessed by the user-interface
+  elements of the main window.</p>
+
+  <p><img src="main_window.png" name="Grafik6" align="left" width=
+  "783" height="612" border="0" id="Grafik6"><br clear="left">
+  Segmentation and extraction of cell-based quantitative information
+  in a batch of transmission/fluorescence is described in the
+  following.</p>
+
+  <p>A suitable transmission/fluorescence image pair typically
+  looks as follows:</p>
+
+  <table width="100%" cellpadding="4" cellspacing="0">
+    <col width="128*">
+    <col width="128*">
+
+    <tr valign="top">
+      <td width="50%" style="border: none; padding: 0cm">
+        <p align="center"><img src="sample-level2.png" name=
+        "Grafik7" align="right" width="460" height="460" border="0"
+        id="Grafik7"><br></p>
+      </td>
+
+      <td width="50%" style="border: none; padding: 0cm">
+        <p align="center"><img src="sample-level1.png" name=
+        "Grafik8" align="left" width="460" height="460" border="0"
+        id="Grafik8"><br></p>
+      </td>
+    </tr>
+
+    <tr valign="top">
+      <td width="50%" style="border: none; padding: 0cm">
+        <p align="center" style="border: none; padding: 0cm">
+        transmission image (sample-level2.png)</p>
+      </td>
+
+      <td width="50%" style="; border: none; padding: 0cm">
+        <p align="center" style="border: none; padding: 0cm">
+        fluorescence image (sample-level1.png)</p>
+      </td>
+    </tr>
+  </table>
+
+  <p>The following steps illustrate the general segmentation
+  procedure:</p>
+
+  <ol>
+    <li>
+      <p>Specification of the source transmission images.</p>
+
+      <p><img src="main_window_select_files.png" name="Grafik1"
+      align="left" width="321" height="391" border="0" id=
+      "Grafik1"><br clear="left">
+      Locate the „Transmission files“ section and add image files
+      with the „+“ button.</p>
+    </li>
+  </ol>
+
+  <ul>
+    <li>
+      <p>Files in the list can be selected by the mouse, multiple
+      selections are possible by pressing the „Ctrl“ or „Shift“
+      button.</p>
+    </li>
+
+    <li>
+      <p>Files in the list are processed in the order they
+      appear.The buttons „/\“ and „\/“ allow to change the order of
+      the selected files.</p>
+    </li>
+
+    <li>
+      <p>Selected files may be removed from the list by the „-“
+      button.</p>
+    </li>
+  </ul>
+
+  <ol start="2">
+    <li>
+      <p>Specification of a filename replacement rule for
+      fluorescence image files.</p>
+
+      <p><img src="main_window_filename_replace_rule.png" name=
+      "Grafik2" align="left" width="281" height="67" border="0" id=
+      "Grafik2"><br clear="left">
+      The fluorescence images have to be located in the same
+      directory under the name of the source image transformed by
+      this rule. E.g,. the above example yields sample-level2.png ->
+      sample-level1.png.</p>
+    </li>
+
+    <li>
+      <p>Configuration of the segmentation parameters.</p>
+
+      <p><img src="configuration_dialog.png" name="Grafik3" align=
+      "left" width="665" height="568" border="0" id=
+      "Grafik3"><br clear="left">
+      The configuration dialog can be invoked by pressing the
+      button „Configure...“ in the section „Counting“.</p>
+
+      <p>There are default values which can be accessed by the
+      button „Default“.</p>
+    </li>
+  </ol>
+
+  <ul>
+    <li>
+      <p>„Preprocess images“ switches the image smoothing and
+      background detection steps.</p>
+
+      <ul>
+        <li>
+          <p>„Crop image“ allows to crop the left, right, top and
+          bottom margin of each input image according to the
+          specified values in pixels.</p>
+        </li>
+
+        <li>
+          <p>„Scale image“ allows to scale each input image to the
+          specified size in pixels.</p>
+        </li>
+
+        <li>
+          <p>„Median filter length“ is given in pixels. It should
+          be greater than the size of relevant features and smaller
+          than size of irrelevant background features.</p>
+        </li>
+
+        <li>
+          <p>„Nonlinear elliptic smoothing“ and „Edge weight“ allow
+          for edge-preserving removal of noise from the input
+          image. The first parameter adjusts the amount of
+          smoothing where lower values lead to smoother images. The
+          second parameter corresponds to how much contrast change
+          is considered as an edge with higher values leading to
+          less edges.</p>
+        </li>
+
+        <li>
+          <p>„Background threshold“ specifies below which jump
+          height the pixel may be considered as background.</p>
+        </li>
+
+        <li>
+          <p>„Background feature size“ corresponds to the minimal
+          amount of connected pixels which will be considered as
+          background.</p>
+        </li>
+      </ul>
+    </li>
+
+    <li>
+      <p>„Segment cells“ switches the cell detection steps.</p>
+
+      <ul>
+        <li>
+          <p>„Seeding“ allows to adjust parameters for the seeding
+          procedure.</p>
+
+          <ul>
+            <li>
+              <p>„Edge weight“ specifies how much the gradient
+              intensity influences the edge image, with lower
+              values leading to more sensitivity with respect to
+              edges.</p>
+            </li>
+
+            <li>
+              <p>„Smoothing steps“ specified how much the edge
+              image is smoothed where greater values give a
+              smoother image.</p>
+            </li>
+
+            <li>
+              <p>„Minimal distance“ corresponds to the minimal
+              distance in pixels between two seeds and should be
+              reasonably below the size of the smallest cells to
+              detect.</p>
+            </li>
+          </ul>
+        </li>
+
+        <li>
+          <p>„Active contours“ collects the parameters for finding
+          the contour of a single cell.</p>
+
+          <ul>
+            <li>
+              <p>„Edge weight“ specifies how much the gradient
+              intensity influences the edge image, with lower
+              values leading to more sensitivity with respect to
+              edges (as in „Seeding“).</p>
+            </li>
+
+            <li>
+              <p>„Smoothing parameter“ specifies the amount of
+              smoothness of the boundary curve with higher values
+              leading to more regular contours.</p>
+            </li>
+
+            <li>
+              <p>„Inflating force“ specifies how much cells of
+              small volume are penalized with greater values
+              leading to bigger cells.</p>
+            </li>
+
+            <li>
+              <p>„Initial radius“ adjusts the radius of the initial
+              contour and should be well below the radius of the
+              smallest cell to detect.</p>
+            </li>
+
+            <li>
+              <p>„Parametrization points“ corresponds to the number
+              of line segments the cell contour is
+              parametrized.</p>
+            </li>
+
+            <li>
+              <p>„Stopping tolerance“ specifies the amount for
+              functional descent under which the active contour
+              algorithm stops.</p>
+            </li>
+          </ul>
+        </li>
+      </ul>
+    </li>
+
+    <li>
+      <p>„Postprocessing“ allows to configure labeling of the
+      segmented image and fluorescence data evaluation.</p>
+
+      <ul>
+        <li>
+          <p>„Postprocess images“ switches whether labeling and
+          cell-wise evaluation is performed.</p>
+        </li>
+
+        <li>
+          <p>„Fluorescence threshold“ specifies, if non-zero, the
+          intensity value which separates fluorescent pixels from
+          non-fluorescent pixels.</p>
+        </li>
+
+        <li>
+          <p>„Generate labeled image“ switches whether an image
+          which color-marked segmented cells and numerical labels
+          is generated.</p>
+        </li>
+      </ul>
+    </li>
+  </ul>
+
+  <ol start="4">
+    <li>
+      <p>Segmentation of the images.</p>
+
+      <p>The segmentation can be started by pressing the button
+      „Process files“ in the „Segmentation“ section.</p>
+
+      <p><img src="main_window_job_status.png" name="Grafik4"
+      align="left" width="441" height="559" border="0" id=
+      "Grafik4"><br clear="left">
+      Progress can be observed in the „Job status“ section.</p>
+    </li>
+
+    <li>
+      <p>Generation of the report.</p>
+
+      <p>A list containing cell-based characteristic values for
+      each transmission/fluorescence image pair is generated by
+      pressing the „Generate“ button in the section „Report“.</p>
+
+      <p><img src="generate_report_dialog.png" name="Grafik5"
+      align="left" width="325" height="248" border="0" id=
+      "Grafik5"><br clear="left">
+      The output filename can be specified in a dialog. The data is
+      stored as a comma separated list (csv).</p>
+    </li>
+  </ol>
+
+  <ul>
+    <li>
+      <p>In an „Aggregated list“, each line contains a transmission
+      image files name, the number of counted cells and average
+      values reflecting cell-data and fluorescence-data
+      characteristics.</p>
+    </li>
+
+    <li>
+      <p>In a „Detailed list“, each line contains a transmission
+      image file name, the cell label followed by a list of values
+      reflecting cell and fluorescence characteristics.</p>
+    </li>
+  </ul>
+
+  <ol start="6">
+    <li>
+      <p>Storage of the settings (optionally)</p>
+
+      <p>All parameters may be stored in a file by selecting „File
+      -> Save Job“ in the menu.</p>
+
+      <p>They can be restored by selecting „File -> Load Job“ in the
+      menu.</p>
+    </li>
+  </ol>
+
+  <h2 class="western">Additional features</h2>
+
+  <p>The software also provides some helper tools.</p>
+
+  <h3 class="western">Clean Cells</h3>
+
+  <p>To remove detected cells from a segmented
+  transmission/fluorescence image pair, press the "Clean Cells"
+  button in the section "Report". Note that the cells are removed
+  from the data corresponding to the selected image in the
+  „Transmission images“ section.</p><img src=
+  "cell_cleaner_dialog.png" name="Cell Cleaner Dialog" align="left"
+  width="341" height="166" border="0"><br clear="left">
+
+  <ul>
+    <li>
+      <p>Cells which are either detected wrong or should be removed
+      from the data sample can be specified in the text box.
+      Multiple cell numbers can be entered separated by
+      whitespaces.</p>
+    </li>
+
+    <li>
+      <p>By checking "Update *_seg.png image" the labeled image
+      will be updated too.</p>
+    </li>
+
+    <li>
+      <p>By clicking „Clean“, the cells corresponding to the
+      entered numbers will be deleted from the data. However,
+      backup files (filename_res_backup.mat,
+      filename_seg_backup.mat, for instance) with the last used
+      dataset will be created.</p>
+    </li>
+
+    <li>
+      <p>In case the helper tool is used multiple times and the
+      original output files should be saved, they have to be saved
+      manually since the program only makes a backup of the last
+      dataset.</p>
+    </li>
+  </ul>
+
+  <h3 class="western">Explore data</h3>
+
+  <p>To explore data and draw graphs from the data press the
+  "Explore data" button in the section "Report".</p><img src=
+  "explore_data_dialog.png" name="Explore Data" align="left" width=
+  "330" height="355" border="0"><br clear="left">
+
+  <ul>
+    <li>
+      <p>To use this feature, the segmentation has to be finished
+      because otherwise, no data to plot is available.</p>
+    </li>
+
+    <li>
+      <p>The data corresponding to the files in the „Transmission
+      files“ list will be evaluated, multiple selections are
+      possible, resulting in a data plot for each selected
+      file.</p>
+    </li>
+
+    <li>
+      <p>In the "Data Selector" window you can choose which
+      segmentation detail should be plotted. You can select more
+      than one detail.</p>
+    </li>
+
+    <li>
+      <p>The values of the selected segmentation details are
+      plotted, on the Y-axis, against a running number on the
+      X-axis. In prior to that, the data is rearranged such that
+      the first selected detail is sorted in descending order.</p>
+    </li>
+
+    <li>
+      <p>If only one segmentation detail is selected, statistical
+      characteristics such as the mean value, the standard
+      deviation and the median will also be displayed.</p>
+    </li>
+
+    <li>
+      <p>If you want to have all data in only one plot check "All
+      data in one plot".</p>
+    </li>
+
+    <li>
+      <p>Since the values of the segmentation details are sorted,
+      the X-axis does not represent the actual cell number. Check
+      "Rename X axis to all cell numbers" to display the correct
+      cell numbers on the X-axis.</p>
+    </li>
+
+    <li>
+      <p>Each figure is saved in an image file for later
+      review.</p>
+    </li>
+  </ul>
+</body>
+</html>
